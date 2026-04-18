@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Elastic Strings — Hand Tracking</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #05050d;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  #cv {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    touch-action: none;
+  }
+
+  /* ── Start screen ── */
+  #start-ui {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: rgba(5,5,13,0.92);
+    z-index: 10;
+  }
+  #start-ui .icon-ring {
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(167,139,250,0.5);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #start-ui p {
+    color: rgba(255,255,255,0.7);
+    font-size: 15px;
+    text-align: center;
+    line-height: 1.7;
+  }
+  #start-ui p span {
+    font-size: 12px;
+    color: rgba(255,255,255,0.35);
+  }
+  #startBtn {
+    padding: 12px 32px;
+    font-size: 14px;
+    border-radius: 10px;
+    background: rgba(167,139,250,0.12);
+    border: 1px solid rgba(167,139,250,0.35);
+    color: rgba(167,139,250,0.9);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  #startBtn:hover { background: rgba(167,139,250,0.22); }
+
+  /* ── Loading screen ── */
+  #loading-ui {
+    position: fixed;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(5,5,13,0.92);
+    z-index: 10;
+  }
+  .spinner {
+    width: 30px; height: 30px;
+    border: 2px solid rgba(255,255,255,0.08);
+    border-top-color: rgba(167,139,250,0.75);
+    border-radius: 50%;
+    animation: spin 0.75s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loadtxt {
+    color: rgba(255,255,255,0.4);
+    font-size: 13px;
+    font-family: monospace;
+  }
+
+  /* ── HUD ── */
+  #hud {
+    position: fixed;
+    top: env(safe-area-inset-top, 12px);
+    left: 12px; right: 12px;
+    display: none;
+    justify-content: space-between;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .hud-pill {
+    font-size: 11px;
+    font-family: monospace;
+    color: rgba(255,255,255,0.4);
+    background: rgba(0,0,0,0.4);
+    padding: 4px 10px;
+    border-radius: 8px;
+    backdrop-filter: blur(4px);
+  }
+
+  /* ── Legend ── */
+  #legend {
+    position: fixed;
+    bottom: env(safe-area-inset-bottom, 16px);
+    left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    gap: 14px;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .leg {
+    font-size: 10px;
+    font-family: monospace;
+    color: rgba(255,255,255,0.35);
+    white-space: nowrap;
+  }
+
+  /* ── Reset button ── */
+  #resetBtn {
+    position: fixed;
+    bottom: env(safe-area-inset-bottom, 16px);
+    right: 14px;
+    padding: 8px 14px;
+    font-size: 12px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.4);
+    cursor: pointer;
+    display: none;
+    z-index: 5;
+    transition: background 0.15s;
+  }
+  #resetBtn:hover { background: rgba(255,255,255,0.12); }
+</style>
+</head>
+<body>
+
+<canvas id="cv"></canvas>
+
+<!-- Start -->
+<div id="start-ui">
+  <div class="icon-ring">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+      stroke="rgba(167,139,250,0.85)" stroke-width="1.5" stroke-linecap="round">
+      <path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v5"/>
+      <path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v6"/>
+      <path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8"/>
+      <path d="M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-2a8 8 0 0 1-8-8 2 2 0 1 1 4 0"/>
+    </svg>
+  </div>
+  <p>Elastic Strings<br><span>camera · both hands · 5 fingertips each</span></p>
+  <button id="startBtn">Enable camera</button>
+</div>
+
+<!-- Loading -->
+<div id="loading-ui">
+  <div class="spinner"></div>
+  <p id="loadtxt">Initialising…</p>
+</div>
+
+<!-- HUD -->
+<div id="hud">
+  <span class="hud-pill" id="hstat">no hands</span>
+  <span class="hud-pill" id="fstat">-- fps</span>
+</div>
+
+<!-- Legend -->
+<div id="legend">
+  <span class="leg" style="color:rgba(251,191,36,0.6);">● thumb</span>
+  <span class="leg" style="color:rgba(167,139,250,0.6);">● index</span>
+  <span class="leg" style="color:rgba(244,114,182,0.6);">● middle</span>
+  <span class="leg" style="color:rgba(52,211,153,0.6);">● ring</span>
+  <span class="leg" style="color:rgba(96,165,250,0.6);">● pinky</span>
+</div>
+
+<button id="resetBtn">reset strings</button>
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+'use strict';
+
+/* ─────────────────────────────────────────
+   CANVAS SETUP
+───────────────────────────────────────── */
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W, H, DPR = window.devicePixelRatio || 1;
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cv.width  = W * DPR;
+  cv.height = H * DPR;
+  cv.style.width  = W + 'px';
+  cv.style.height = H + 'px';
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.scale(DPR, DPR);
+}
+resize();
+window.addEventListener('resize', () => { resize(); buildStrings(); });
+
+/* ─────────────────────────────────────────
+   PHYSICS CONFIG  — tweak these freely
+───────────────────────────────────────── */
+const CFG = {
+  numStrings:   8,
+  segments:     24,
+  restLen:      11,      // px between nodes — shorter = tighter
+  gravity:      0.11,
+  damping:      0.993,   // 0.99 = bouncy · 0.999 = floaty
+  iterations:   16,      // constraint passes — more = stiffer
+  grabLerp:     0.72,    // how fast nodes chase fingertip
+  smoothK:      0.55,    // landmark smoothing (0=frozen · 1=raw)
+  grabRadius:   16,      // px — how close to grab a string
+  tipRadius:    22,      // px — collision detection between tips
+  burstCoolMs:  400,     // ms between burst events per pair
+};
+
+/* ─────────────────────────────────────────
+   COLOUR PALETTES
+───────────────────────────────────────── */
+const STRING_COLS = [
+  '#a78bfa','#f472b6','#34d399',
+  '#60a5fa','#fbbf24','#f87171',
+  '#a3e635','#38bdf8'
+];
+const TIP_IDS  = [4, 8, 12, 16, 20];
+const TIP_COLS = ['#fbbf24','#a78bfa','#f472b6','#34d399','#60a5fa'];
+
+/* ─────────────────────────────────────────
+   STATE
+───────────────────────────────────────── */
+let strings     = [];
+let sparks      = [];
+let bursts      = [];
+let rawHands    = [];
+let smoothHands = [];
+let videoEl     = null;
+const burstLog  = {};
+
+/* ─────────────────────────────────────────
+   STRING BUILDER
+───────────────────────────────────────── */
+function buildStrings() {
+  strings = [];
+  const n = CFG.numStrings;
+  for (let i = 0; i < n; i++) {
+    const sy = H * 0.08 + i * (H * 0.84 / n);
+    const pts = [];
+    for (let j = 0; j <= CFG.segments; j++) {
+      const x = W * 0.03 + W * 0.94 * (j / CFG.segments);
+      const y = sy + Math.sin(j / CFG.segments * Math.PI) * 10;
+      pts.push({ x, y, px: x, py: y, pin: j === 0 || j === CFG.segments });
+    }
+    strings.push({
+      pts,
+      col:     STRING_COLS[i % STRING_COLS.length],
+      grabs:   [],
+      glow:    0,
+      tension: 0,
+    });
+  }
+}
+buildStrings();
+
+/* ─────────────────────────────────────────
+   UTILITIES
+───────────────────────────────────────── */
+function dst(ax, ay, bx, by) {
+  const dx = ax - bx, dy = ay - by;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+
+function h2r(hex) {
+  return parseInt(hex.slice(1,3),16) + ',' +
+         parseInt(hex.slice(3,5),16) + ',' +
+         parseInt(hex.slice(5,7),16);
+}
+
+/* ─────────────────────────────────────────
+   PARTICLES
+───────────────────────────────────────── */
+function addSparks(x, y, col, n, speed = 2) {
+  for (let i = 0; i < n; i++) {
+    const a  = Math.random() * Math.PI * 2;
+    const sp = speed + Math.random() * 3;
+    sparks.push({
+      x, y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp - 1.2,
+      life: 1,
+      col,
+      size: 1.5 + Math.random() * 2,
+    });
+  }
+}
+
+function addBurst(x, y, col) {
+  bursts.push({ x, y, col, r: 0, life: 1 });
+  addSparks(x, y, col,      18, 3.5);
+  addSparks(x, y, '#ffffff', 8, 2.0);
+}
+
+/* ─────────────────────────────────────────
+   LANDMARK SMOOTHING
+───────────────────────────────────────── */
+function smoothLandmarks(raw) {
+  if (!raw || raw.length === 0) { smoothHands = []; return; }
+  if (smoothHands.length > raw.length) smoothHands.length = raw.length;
+  for (let hi = 0; hi < raw.length; hi++) {
+    const r = raw[hi];
+    if (!smoothHands[hi] || smoothHands[hi].length !== r.length) {
+      smoothHands[hi] = r.map(p => ({ x: p.x, y: p.y }));
+    } else {
+      for (let li = 0; li < r.length; li++) {
+        smoothHands[hi][li].x += (r[li].x - smoothHands[hi][li].x) * CFG.smoothK;
+        smoothHands[hi][li].y += (r[li].y - smoothHands[hi][li].y) * CFG.smoothK;
+      }
+    }
+  }
+}
+
+/* ─────────────────────────────────────────
+   FINGERTIP COLLISION → BURST
+───────────────────────────────────────── */
+function checkTipCollisions() {
+  const now = Date.now();
+
+  function tryBurst(tA, tB, key, col) {
+    if (dst(tA.x, tA.y, tB.x, tB.y) < CFG.tipRadius) {
+      if (!burstLog[key] || now - burstLog[key] > CFG.burstCoolMs) {
+        burstLog[key] = now;
+        addBurst((tA.x + tB.x) / 2, (tA.y + tB.y) / 2, col);
+      }
+    }
+  }
+
+  // Cross-hand collisions
+  if (smoothHands.length >= 2) {
+    for (let ai = 0; ai < TIP_IDS.length; ai++) {
+      const tA = smoothHands[0]?.[TIP_IDS[ai]]; if (!tA) continue;
+      for (let bi = 0; bi < TIP_IDS.length; bi++) {
+        const tB = smoothHands[1]?.[TIP_IDS[bi]]; if (!tB) continue;
+        tryBurst(tA, tB, `x${ai}-${bi}`, TIP_COLS[ai]);
+      }
+    }
+  }
+
+  // Same-hand pinch collisions
+  for (let hi = 0; hi < smoothHands.length; hi++) {
+    const hand = smoothHands[hi]; if (!hand) continue;
+    for (let ai = 0; ai < TIP_IDS.length; ai++) {
+      for (let bi = ai + 1; bi < TIP_IDS.length; bi++) {
+        const tA = hand[TIP_IDS[ai]], tB = hand[TIP_IDS[bi]];
+        if (!tA || !tB) continue;
+        tryBurst(tA, tB, `p${hi}-${ai}-${bi}`, TIP_COLS[ai]);
+      }
+    }
+  }
+}
+
+/* ─────────────────────────────────────────
+   PHYSICS — VERLET + CONSTRAINT
+───────────────────────────────────────── */
+function constrain(s) {
+  for (let it = 0; it < CFG.iterations; it++) {
+    for (let i = 0; i < s.pts.length - 1; i++) {
+      const a = s.pts[i], b = s.pts[i+1];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d  = Math.sqrt(dx*dx + dy*dy) || 1e-4;
+      const df = (d - CFG.restLen) / d * 0.5;
+      if (!a.pin) { a.x += dx*df; a.y += dy*df; }
+      if (!b.pin) { b.x -= dx*df; b.y -= dy*df; }
+    }
+  }
+}
+
+function updateStrings() {
+  for (const s of strings) {
+    s.glow *= 0.89;
+
+    // Verlet integrate
+    for (const p of s.pts) {
+      if (p.pin) continue;
+      const vx = (p.x - p.px) * CFG.damping;
+      const vy = (p.y - p.py) * CFG.damping;
+      p.px = p.x; p.py = p.y;
+      p.x += vx;
+      p.y += vy + CFG.gravity;
+      // boundary
+      if (p.y > H - 4) { p.y = H - 4; p.py = p.y + vy * 0.15; }
+      if (p.y < 4)     { p.y = 4;     p.py = p.y + vy * 0.15; }
+      if (p.x < 4)     { p.x = 4;     p.px = p.x + vx * 0.15; }
+      if (p.x > W - 4) { p.x = W - 4; p.px = p.x + vx * 0.15; }
+    }
+
+    constrain(s);
+
+    // Tension metric
+    let totalLen = 0;
+    for (let i = 0; i < s.pts.length - 1; i++)
+      totalLen += dst(s.pts[i].x, s.pts[i].y, s.pts[i+1].x, s.pts[i+1].y);
+    s.tension = Math.max(0, (totalLen - CFG.restLen * CFG.segments) / (CFG.restLen * CFG.segments));
+
+    // Apply existing grabs
+    const alive = [];
+    for (const g of s.grabs) {
+      const tip = smoothHands[g.hi]?.[g.ti];
+      if (tip) {
+        const p = s.pts[g.pi];
+        p.px = p.x; p.py = p.y;
+        p.x += (tip.x - p.x) * CFG.grabLerp;
+        p.y += (tip.y - p.y) * CFG.grabLerp;
+        s.glow = Math.min(1, s.glow + 0.08);
+        alive.push(g);
+      }
+    }
+    s.grabs = alive;
+
+    // New grab detection
+    for (let hi = 0; hi < smoothHands.length; hi++) {
+      const hand = smoothHands[hi]; if (!hand) continue;
+      for (const ti of TIP_IDS) {
+        const tip = hand[ti]; if (!tip) continue;
+        if (s.grabs.some(g => g.hi === hi && g.ti === ti)) continue;
+        for (let pi = 1; pi < s.pts.length - 1; pi++) {
+          const p = s.pts[pi];
+          if (dst(p.x, p.y, tip.x, tip.y) < CFG.grabRadius) {
+            s.grabs.push({ hi, ti, pi });
+            s.glow = 1;
+            addSparks(p.x, p.y, s.col, 7, 2.5);
+            break;
+          }
+        }
+      }
+    }
+  }
+}
+
+function updateParticles() {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i];
+    sp.x  += sp.vx; sp.y += sp.vy;
+    sp.vy += 0.08;
+    sp.vx *= 0.97;
+    sp.life -= 0.025;
+    if (sp.life <= 0) sparks.splice(i, 1);
+  }
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    bursts[i].r    += 3.5;
+    bursts[i].life -= 0.04;
+    if (bursts[i].life <= 0) bursts.splice(i, 1);
+  }
+}
+
+/* ─────────────────────────────────────────
+   DRAW
+───────────────────────────────────────── */
+const BONE_PAIRS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [0,9],[9,10],[10,11],[11,12],
+  [0,13],[13,14],[14,15],[15,16],
+  [0,17],[17,18],[18,19],[19,20],
+  [5,9],[9,13],[13,17]
+];
+
+function drawStrings() {
+  for (const s of strings) {
+    const rgb = h2r(s.col);
+    const g   = s.glow;
+    const ten = Math.min(0.5, s.tension * 2);
+
+    // Glow bloom
+    if (g > 0.04) {
+      ctx.save();
+      ctx.globalAlpha = g * 0.28;
+      ctx.strokeStyle = s.col;
+      ctx.lineWidth   = 10 + g * 10;
+      ctx.filter      = 'blur(5px)';
+      ctx.beginPath();
+      ctx.moveTo(s.pts[0].x, s.pts[0].y);
+      for (let i = 1; i < s.pts.length; i++) ctx.lineTo(s.pts[i].x, s.pts[i].y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Main line
+    ctx.strokeStyle = `rgba(${rgb},${0.55 + g*0.35 + ten})`;
+    ctx.lineWidth   = 1.8 + g*2 + s.tension*3;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+    ctx.beginPath();
+    ctx.moveTo(s.pts[0].x, s.pts[0].y);
+    for (let i = 1; i < s.pts.length; i++) ctx.lineTo(s.pts[i].x, s.pts[i].y);
+    ctx.stroke();
+
+    // Anchor dots
+    ctx.fillStyle = `rgba(${rgb},0.95)`;
+    ctx.beginPath(); ctx.arc(s.pts[0].x, s.pts[0].y, 3.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(s.pts[s.pts.length-1].x, s.pts[s.pts.length-1].y, 3.5, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+function drawHands() {
+  for (let hi = 0; hi < smoothHands.length; hi++) {
+    const hand = smoothHands[hi]; if (!hand) continue;
+    const baseRGB = hi === 0 ? '167,139,250' : '52,211,153';
+
+    // Skeleton bones
+    ctx.strokeStyle = `rgba(${baseRGB},0.28)`;
+    ctx.lineWidth   = 1.2;
+    for (const [a, b] of BONE_PAIRS) {
+      if (!hand[a] || !hand[b]) continue;
+      ctx.beginPath();
+      ctx.moveTo(hand[a].x, hand[a].y);
+      ctx.lineTo(hand[b].x, hand[b].y);
+      ctx.stroke();
+    }
+
+    // All joints (faint)
+    ctx.fillStyle = `rgba(${baseRGB},0.18)`;
+    for (const lm of hand) {
+      if (!lm) continue;
+      ctx.beginPath(); ctx.arc(lm.x, lm.y, 3, 0, Math.PI*2); ctx.fill();
+    }
+
+    // Fingertip rings
+    for (let ti = 0; ti < TIP_IDS.length; ti++) {
+      const tip = hand[TIP_IDS[ti]]; if (!tip) continue;
+      const col  = TIP_COLS[ti];
+      const rgb  = h2r(col);
+      const pulse = 0.65 + 0.35 * Math.sin(Date.now()*0.005 + ti*1.2);
+
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle   = col;
+      ctx.beginPath(); ctx.arc(tip.x, tip.y, 16, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+
+      ctx.strokeStyle = `rgba(${rgb},${pulse})`;
+      ctx.lineWidth   = 1.5;
+      ctx.beginPath(); ctx.arc(tip.x, tip.y, 9, 0, Math.PI*2); ctx.stroke();
+
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(tip.x, tip.y, 3.5, 0, Math.PI*2); ctx.fill();
+    }
+  }
+}
+
+function drawParticles() {
+  for (const sp of sparks) {
+    ctx.fillStyle = `rgba(${h2r(sp.col)},${sp.life*0.95})`;
+    ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.size*sp.life, 0, Math.PI*2); ctx.fill();
+  }
+  for (const b of bursts) {
+    const rgb = h2r(b.col);
+    ctx.save();
+    ctx.globalAlpha = b.life * 0.5;
+    ctx.strokeStyle = `rgba(${rgb},1)`;
+    ctx.lineWidth   = 2;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.stroke();
+    ctx.globalAlpha = b.life * 0.1;
+    ctx.fillStyle   = `rgba(${rgb},1)`;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ─────────────────────────────────────────
+   RENDER LOOP
+───────────────────────────────────────── */
+let lastT = performance.now(), fc = 0;
+
+function renderLoop(now) {
+  fc++;
+  if (now - lastT > 600) {
+    document.getElementById('fstat').textContent =
+      Math.round(fc * 1000 / (now - lastT)) + ' fps';
+    fc = 0; lastT = now;
+  }
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Camera background
+  if (videoEl && videoEl.readyState >= 2) {
+    ctx.save();
+    ctx.translate(W, 0); ctx.scale(-1, 1);    // mirror for selfie view
+    ctx.drawImage(videoEl, 0, 0, W, H);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(5,5,13,0.28)';       // dark tint for contrast
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    ctx.fillStyle = '#05050d';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  smoothLandmarks(rawHands);
+  checkTipCollisions();
+  updateStrings();
+  updateParticles();
+
+  drawStrings();
+  drawHands();
+  drawParticles();
+
+  requestAnimationFrame(renderLoop);
+}
+requestAnimationFrame(renderLoop);
+
+/* ─────────────────────────────────────────
+   CAMERA + MEDIAPIPE INIT
+───────────────────────────────────────── */
+async function startExperience() {
+  const startUI   = document.getElementById('start-ui');
+  const loadUI    = document.getElementById('loading-ui');
+  const loadTxt   = document.getElementById('loadtxt');
+  const hud       = document.getElementById('hud');
+  const legend    = document.getElementById('legend');
+  const resetBtn  = document.getElementById('resetBtn');
+  const hstat     = document.getElementById('hstat');
+
+  startUI.style.display = 'none';
+  loadUI.style.display  = 'flex';
+
+  try {
+    loadTxt.textContent = 'Requesting camera…';
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+
+    videoEl = document.createElement('video');
+    videoEl.srcObject  = stream;
+    videoEl.autoplay   = true;
+    videoEl.playsInline = true;
+    videoEl.muted      = true;
+    await videoEl.play();
+
+    loadTxt.textContent = 'Loading hand model…';
+    if (typeof Hands === 'undefined') throw new Error('MediaPipe script not loaded');
+
+    const mp = new Hands({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+    });
+    mp.setOptions({
+      maxNumHands:            2,
+      modelComplexity:        1,
+      minDetectionConfidence: 0.72,
+      minTrackingConfidence:  0.65,
+    });
+
+    mp.onResults(results => {
+      rawHands = [];
+      if (results.multiHandLandmarks?.length) {
+        for (const lms of results.multiHandLandmarks) {
+          rawHands.push(lms.map(lm => ({
+            x: (1 - lm.x) * W,   // mirror X to match flipped video
+            y: lm.y * H,
+          })));
+        }
+        hstat.textContent = rawHands.length === 1 ? '1 hand' : rawHands.length + ' hands';
+      } else {
+        hstat.textContent = 'no hands';
+      }
+    });
+
+    loadTxt.textContent = 'Starting tracker…';
+
+    if (typeof Camera !== 'undefined') {
+      const cam = new Camera(videoEl, {
+        onFrame: async () => { await mp.send({ image: videoEl }); },
+        width: 1280, height: 720,
+      });
+      await cam.start();
+    } else {
+      (async function loop() {
+        await mp.send({ image: videoEl });
+        requestAnimationFrame(loop);
+      })();
+    }
+
+    loadUI.style.display    = 'none';
+    hud.style.display       = 'flex';
+    legend.style.display    = 'flex';
+    resetBtn.style.display  = 'block';
+
+  } catch (err) {
+    loadTxt.textContent = 'Error: ' + (err.message || 'camera denied');
+    loadTxt.style.color = 'rgba(248,113,113,0.85)';
+    setTimeout(() => {
+      loadUI.style.display  = 'none';
+      startUI.style.display = 'flex';
+      startUI.querySelector('p').innerHTML =
+        'Camera unavailable<br><span>Serve over HTTPS and allow camera access</span>';
+    }, 2800);
+  }
+}
+
+document.getElementById('startBtn').addEventListener('click', startExperience);
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  buildStrings();
+  addSparks(W/2, H/2, '#ffffff', 16, 3);
+});
+
+/* space bar reset for desktop testing */
+document.addEventListener('keydown', e => {
+  if (e.key === ' ') { buildStrings(); addSparks(W/2, H/2, '#ffffff', 16, 3); }
+});
+</script>
+</body>
+</html>
